@@ -46,8 +46,3 @@ export interface IPostgresCRUD {
     table: IPostgresTable
     postgresDB: PostgresDB
 }
-
-
-// PRECISO SABER QUAIS SAO AS PRIMARY KEYS
-// 
-// PRECISO SABER QUAIS SAO AS
