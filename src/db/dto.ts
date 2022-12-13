@@ -1,34 +1,53 @@
 import PostgresDB from './postgresDB'
 
-export type ITableRelation = 'many2many' | 'many2one' | 'one2many' | 'one2one'
+interface IPostgresPagination {
+    page: number
+    perPage: number
+}
 
-export type ITableField = string | {
+interface IPostgresSort {
+    direction: 'asc' | 'desc' | 'DESC' | 'ASC'
+    field: string
+}
+
+export interface IPostgresGetMany<T>  {
+    where?: Partial<T> | Array<Partial<T>>
+    pagination?: IPostgresPagination,
+    sort?: IPostgresSort
+    groupBy?: string[]
+}
+
+export interface IPostgresUpdateMany<T>  {
+    where?: Partial<T> | Array<Partial<T>>
+    data: Partial<T>
+}
+
+export interface IPostgresUpdateOne<T>  {
+    pk: { [k: string]: any }
+    data: Partial<T>
+}
+
+export interface IPostgresColumn {
     pk?: boolean
     unique?: boolean
-    name: string
-    // nullable?: boolean
-    cantSelect?: boolean
-    cantUpdate?: boolean
-    type?: 'text' | 'number' | 'bool' | 'id'
+    select?: boolean
 }
 
-export type ITable = Array<ITableField>
+export type IPostgresColumns = {
+    [k: string]: IPostgresColumn
+}
+
+export interface IPostgresTable {
+    tableName: string
+    columns: IPostgresColumns
+}
 
 export interface IPostgresCRUD {
+    table: IPostgresTable
     postgresDB: PostgresDB
-    pool?: string
-    tableName: string
-    relations?: Array<{
-        type: ITableRelation,
-        tableName: string,
-        pk?: string,
-        fk?: string
-        fields: ITable
-    }>
-    fields: ITable
 }
 
-export interface IPostgresCRUDGetOne {
-    where?: { [k: string]: any }
-    
-}
+
+// PRECISO SABER QUAIS SAO AS PRIMARY KEYS
+// 
+// PRECISO SABER QUAIS SAO AS

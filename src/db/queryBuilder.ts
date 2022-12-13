@@ -3,28 +3,20 @@ class QueryBuilder {
         let query = ''
 
         if (Array.isArray(where)) {
-            where.forEach(w => { query += `(${this.whereBuilder(w)}) OR ` })
+            where.forEach(w => { query += `(${this.whereBuilder(w).slice(6)}) OR ` })
 
             query = query.slice(0, -4)
         } else {
-            Object.keys(where).forEach((k: string) => {
-                let value: string = ''
+            Object.keys(where).forEach((k) => {
+                const value: string = this.formatValue(where[k])
 
-                if (typeof where[k] === 'boolean') {
-                    value = where[k] ? 'true' : 'false'
-                } else if (where[k]) {
-                    if (typeof where[k] === 'number') {
-                        value = `${where[k]}`
-                    } else { value = `'${where[k]}'` }
-                }
-
-                if (value) { query += `${k} = ${value} AND ` }
+                if (value) { query += `${this.camelCaseToSnakeCase(k)} = ${value} AND ` }
             })
 
             if (query) { query = query.slice(0, -5) }
         }
 
-        return query
+        return `WHERE ${query}`
     }
 
     static commaBuilder(fields: string[]): string {
@@ -41,15 +33,7 @@ class QueryBuilder {
         let query = ''
 
         Object.keys(fields).forEach((k: string) => {
-            let value = ''
-
-            if (typeof fields[k] === 'boolean') {
-                value = fields[k] ? 'true' : 'false'
-            } else if (fields[k]) {
-                if (typeof fields[k] === 'number') {
-                    value = `${fields[k]}`
-                } else { value = `'${fields[k]}'` }
-            }
+            const value = this.formatValue(fields[k])
 
             if (value) { query += `${k} = ${value}, ` }
         })
@@ -57,6 +41,32 @@ class QueryBuilder {
         if (query) { query = query.slice(0, -2) }
 
         return query
+    }
+
+    static camelCaseToSnakeCase(value: string | { [k: string]: any }) {
+        if (typeof value === 'string') return value.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`)
+
+        const formattedObj: { [k: string]: any } = {}
+
+        Object.keys(value).forEach(key => {
+            formattedObj[this.camelCaseToSnakeCase(key) as string] = value[key]
+        })
+
+        return formattedObj
+    }
+
+    static formatValue(value: string | number | boolean) {
+        let formatValue = ''
+
+        if (typeof value === 'boolean') {
+            formatValue = value ? 'true' : 'false'
+        } else if (value) {
+            if (typeof value === 'number') {
+                formatValue = `${value}`
+            } else { formatValue = `'${value}'` }
+        }
+
+        return formatValue
     }
 
 }

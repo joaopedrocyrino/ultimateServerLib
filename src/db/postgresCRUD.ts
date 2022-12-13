@@ -1,153 +1,162 @@
-import { AppDate } from '../date'
-import { IPostgresCRUD } from './dto'
 import PostgresDB from './postgresDB'
+
+import { AppDate } from '../date'
+import { DatabaseNotFoundError, DatabaseConflictError } from '../errors'
+
 import QueryBuilder from './queryBuilder'
+import {
+    IPostgresGetMany,
+    IPostgresUpdateMany,
+    IPostgresUpdateOne,
+    IPostgresCRUD,
+    IPostgresColumns
+} from './dto'
 
 class PostgresCRUD {
-    private readonly tableName?: string
-    private readonly postgresDB?: PostgresDB
+    private readonly postgresDB: PostgresDB
+    private readonly tableName: string
+    private readonly primaryKeys: string[]
+    private readonly selectFields: string[]
+    private readonly uniqueFields: string[]
 
+    constructor({ table: { tableName, columns }, postgresDB }: IPostgresCRUD) {
+        this.postgresDB = postgresDB
+        this.tableName = tableName
 
-    // private readonly selectFields: string[]
-    // private readonly uniqueFields: Array<string | string[]>
+        const snakeCaseColumns = QueryBuilder.camelCaseToSnakeCase(columns) as IPostgresColumns
 
-    constructor({ fields, ...props }: IPostgresCRUD) {
-        const createFields = []
-        const readFields = []
-        const updateFields = []
-        const uniqueFields = []
+        const selectFields: string[] = []
+        const primaryKeys: string[] = []
+        const uniqueFields: string[] = []
 
-        fields.forEach(field => {
-            if (typeof field === 'string') {
-                createFields.push(field)
-                readFields.push(field)
-                updateFields.push(field)
-            } else {
-                createFields.push(field.name)
-                
-                if (!field.cantSelect) readFields.push(field.name)
-
-                if (!field.cantUpdate) updateFields.push(field.name)
-
-            }
+        Object.keys(snakeCaseColumns).forEach(key => {
+            if (snakeCaseColumns[key].select !== false) selectFields.push(key)
+            if (snakeCaseColumns[key].pk) primaryKeys.push(key)
+            if (snakeCaseColumns[key].unique) primaryKeys.push(key)
         })
 
-        Object.assign(this, props)
-
-
-
-        // this.selectFields = selectFields
-        //     ? [
-        //         ...selectFields,
-        //         'id',
-        //         'created_at',
-        //         'updated_at',
-        //         'is_deleted'
-        //     ]
-        //     : ['*']
-        // this.uniqueFields = uniqueFields ?? ['id']
+        this.primaryKeys = primaryKeys
+        this.uniqueFields = uniqueFields
+        this.selectFields = selectFields
+            ? [
+                ...selectFields,
+                'created_at',
+                'updated_at',
+                'is_deleted'
+            ]
+            : ['*']
     }
 
-    async getOne<T>(fields: Partial<T | baseFields>): Promise<T> {
-        let query = `SELECT ${QueryBuilder.commaBuilder(this.selectFields)} FROM ${this.tableName ?? ''}`
+    async getOne<T>(where: Partial<T>): Promise<T> {
+        let query = `SELECT ${QueryBuilder.commaBuilder(this.selectFields)} FROM ${this.tableName}`
 
-        if (Object.keys(fields).length) {
-            query += ` WHERE ${QueryBuilder.whereBuilder(fields)}`
+        if (Object.keys((where)).length) {
+            query += QueryBuilder.whereBuilder(where)
         }
 
         query += ' LIMIT 1'
 
-        const record = await this.postgresDB?.query<T>(query)
+        const record = await this.postgresDB.query<T>(query)
 
-        if (!record.length) { throw new BaseError(404, 'GET ONE ERROR: Not found') }
+        if (!record.length) { throw new DatabaseNotFoundError() }
 
         return record[0] as T
     }
 
     async getMany<T>({
-        fields,
-        take,
-        skip,
-        order,
-        direction,
-        group
-    }: getMany<T>): Promise<Array<T>> {
+        where,
+        pagination,
+        sort,
+        groupBy,
+    }: IPostgresGetMany<T>): Promise<Array<T>> {
         let query = 'SELECT '
 
-        if (group?.length) {
-            query += `${QueryBuilder.commaBuilder(group as string[])} FROM ${this.entity} GROUP BY ${QueryBuilder.commaBuilder(group as string[])}`
+        if (groupBy?.length) {
+            query += `${QueryBuilder.commaBuilder(groupBy)} FROM ${this.tableName} GROUP BY ${QueryBuilder.commaBuilder(groupBy as string[])}`
         } else {
-            query += `${QueryBuilder.commaBuilder(this.selectFields)} FROM ${this.entity}`
+            query += `${QueryBuilder.commaBuilder(this.selectFields)} FROM ${this.tableName}`
         }
 
-        if (fields?.length) { query += ` WHERE ${QueryBuilder.whereBuilder(fields)}` }
-        if (order && direction) { query += ` ORDER BY ${order as string} ${direction}` }
-        if (skip) { query += ` OFFSET ${skip}` }
-        if (take) { query += ` LIMIT ${take}` }
+        if (Object.keys(where ?? {}).length) {
+            query += QueryBuilder.whereBuilder(where as { [k: string]: any })
+        }
 
-        const records = await this.database.query<T>(query)
+        if (sort) { query += ` ORDER BY ${sort.field} ${sort.direction.toUpperCase()}` }
+
+        if (pagination) {
+            query += ` OFFSET ${(pagination.page - 1) * pagination.perPage}`
+            query += ` LIMIT ${pagination.perPage}`
+        }
+
+        const records = await this.postgresDB.query<T>(query)
 
         return records
     }
 
-    async update<T>(id: string, fields: Partial<T>): Promise<void> {
-        await this.getOne({ id })
+    async updateMany<T>({ where, data }: IPostgresUpdateMany<T>): Promise<void> {
+        const updated_at = AppDate.isoDate()
+
+        let query =
+            `UPDATE ${this.tableName} ` +
+            `SET ${QueryBuilder.setBuilder({ ...data, updated_at })} `
+
+        if (where) {
+            query += QueryBuilder.whereBuilder(where)
+        }
+
+        await this.postgresDB.query(query)
+    }
+
+    async updateOne<T>({ pk, data }: IPostgresUpdateOne<T>): Promise<void> {
+        await this.getOne(pk)
 
         const updated_at = AppDate.isoDate()
 
-        const query =
-            `UPDATE ${this.entity} ` +
-            `SET ${QueryBuilder.setBuilder({ ...fields, updated_at })} ` +
-            `WHERE id = '${id}'`
+        let query =
+            `UPDATE ${this.tableName} ` +
+            `SET ${QueryBuilder.setBuilder({ ...data, updated_at })} ` +
+            QueryBuilder.whereBuilder(pk)
 
-        await this.database.query(query)
+        await this.postgresDB.query(query)
     }
 
-    async delete(id: string): Promise<void> {
-        await this.getOne({ id })
+    async deleteOne(pk: { [k: string]: any }): Promise<void> {
+        await this.getOne(pk)
 
-        await this.update(id, { is_deleted: true })
+        await this.updateOne({ pk, data: { is_deleted: true } })
+    }
+
+    async deleteMany(where?: { [k: string]: any }): Promise<void> {
+        await this.updateMany({ where, data: { is_deleted: true } })
     }
 
     async create<T>(record: T): Promise<void> {
-        const prevRecord = await this.database.query<T>(
-            `SELECT * FROM ${this.entity} ` +
-            `WHERE ${QueryBuilder.whereBuilder(
-                this.uniqueFields.map(f => {
-                    if (typeof f === 'string') {
-                        return { [f]: record[f as keyof T] }
-                    }
+        const pkPrevRecord: { [k: string]: any } = {}
 
-                    const where: { [k: string]: any } = {}
+        this.primaryKeys.forEach(pk => { pkPrevRecord[pk] = record[pk as keyof T] })
 
-                    f.forEach(k => { where[k] = record[k as keyof T] })
-
-                    return where
-                })
-            )}`
+        const prevRecord = await this.postgresDB.query<T>(
+            `SELECT * FROM ${this.tableName} ` +
+            QueryBuilder.whereBuilder(
+                [
+                    ...this.uniqueFields.map(f => ({ [f]: record[f as keyof T] })),
+                    pkPrevRecord
+                ]
+            )
         )
 
-        if (prevRecord.length) { throw new BaseError(409, 'CREATE ERROR: Conflict') }
+        if (prevRecord.length) { throw new DatabaseConflictError() }
 
-        const keys = Object.keys(record)
+        const keys = Object.keys(record as object)
 
         let query =
-            `INSERT INTO ${this.entity} ` +
+            `INSERT INTO ${this.tableName} ` +
             `(${QueryBuilder.commaBuilder(keys)}) VALUES (`
 
         type t = keyof typeof record
 
         keys.forEach(k => {
-
-            let value = ''
-
-            if (typeof record[k as t] === 'boolean') {
-                value = record[k as t] ? 'true' : 'false'
-            } else if (record[k as t]) {
-                if (typeof record[k as t] === 'number') {
-                    value = `${record[k as t]}`
-                } else { value = `'${record[k as t]}'` }
-            }
+            const value = QueryBuilder.formatValue(record[k as t] as string | number | boolean)
 
             query += `${value}, `
         })
@@ -156,7 +165,7 @@ class PostgresCRUD {
 
         query += ')'
 
-        await this.database.query(query)
+        await this.postgresDB.query(query)
     }
 }
 

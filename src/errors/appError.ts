@@ -1,7 +1,8 @@
 import { IAppError } from './dto'
 
 class AppError extends Error {
-    readonly code?: string
+    readonly code?: number
+    readonly layer?: string
 
     constructor({ message, ...props }: IAppError) {
         super(message)

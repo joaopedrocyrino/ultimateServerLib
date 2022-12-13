@@ -1,4 +1,5 @@
 export interface IAppError {
     message?: string
-    code?: string
+    layer?: string
+    code?: number
 }
